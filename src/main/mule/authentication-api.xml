@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="82b12d6b-b8a1-44ea-9739-5795ac6f03cd" >
+		<http:listener-connection host="localhost" port="8085" />
+	</http:listener-config>
+	<os:object-store name="auth-Object_store" doc:name="Object store" doc:id="efcfac78-690a-4e1d-ba51-603e768c4778" entryTtl="5" entryTtlUnit="MINUTES" expirationInterval="5" />
+	<http:request-config name="HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="cdd92de7-6ad5-44be-9aef-ef1bc79db6a3" >
+		<http:request-connection host="localhost" port="8086" />
+	</http:request-config>
+	<flow name="authentication-apiFlow" doc:id="81b9be90-e0cc-466c-bdbc-afe82eef9f12" >
+		<http:listener doc:name="Listener" doc:id="673c24cc-aed0-4485-a19c-03896a06041d" config-ref="HTTP_Listener_config" path="/authentication-api"/>
+		<os:contains doc:name="Contains" doc:id="b8d9b6b2-fc11-48be-b617-04bf88bccd2b" key="token-data" objectStore="auth-Object_store"/>
+		<choice doc:name="Choice" doc:id="ca57b4c0-9291-4f8c-9052-457ac1f77746" >
+			<when expression="#[payload == true]">
+				<os:retrieve doc:name="Retrieve" doc:id="92d2f215-0f98-4696-9ae3-3b48d5d6e8a0" key="token-data" objectStore="auth-Object_store">
+					<os:default-value ><![CDATA[#[payload]]]></os:default-value>
+				</os:retrieve>
+				<choice doc:name="Choice" doc:id="5ea4e145-436f-401b-99d3-d8d702588b5c" >
+					<when expression="#[((now() - payload.createdAt) as Number) &lt; payload.expiry_interval]">
+						<ee:transform doc:name="Transform Message" doc:id="94fe60ab-7cbc-4e1c-8ee7-464db4c7f3c4" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[output application/json
+---
+{
+	"final_token": payload.token,
+	"action": "reusing valid token"
+}]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+					</when>
+					<otherwise >
+						<http:request method="GET" doc:name="Request" doc:id="84fd185d-ecc1-4adf-a8a7-c83d2ac12aa0" config-ref="HTTP_Request_configuration" path="/tokenapi"/>
+						<set-payload value="#[payload ++ {createdAt: now()}]" doc:name="Set Payload" doc:id="24bb8970-7b83-4de0-b232-4a27dbb8970c" />
+						<os:store doc:name="Store" doc:id="84bc3e2e-3c1d-44ab-9870-c838c9b6aa05" key="token-data" objectStore="auth-Object_store"/>
+						<ee:transform doc:name="Transform Message" doc:id="e05cda5a-8459-4e6c-a40f-96a55705deeb" >
+							<ee:message >
+								<ee:set-payload ><![CDATA[output application/json
+---
+{
+	"final_token": payload.token,
+	"action": "generating a new token due to invalid token"
+}]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+					</otherwise>
+				</choice>
+			</when>
+			<otherwise >
+				<http:request method="GET" doc:name="Request" doc:id="8809c710-591b-4888-9a5f-7f99962b1a02" config-ref="HTTP_Request_configuration" path="/tokenapi"/>
+				<set-payload value="#[payload ++ {createdAt: now()}]" doc:name="Set Payload" doc:id="fd20260b-e4a3-47e0-b6e6-e38b9473576e" />
+				<os:store doc:name="Store" doc:id="cf4595a3-db45-4de4-8b52-018ca9bbbf8d" key="token-data" objectStore="auth-Object_store"/>
+				<ee:transform doc:name="Transform Message" doc:id="a81a8377-90db-4e10-abd1-1fff875f1976">
+					<ee:message>
+						<ee:set-payload><![CDATA[output application/json
+---
+{
+	"final_token": payload.token,
+	"action": "generating a new token due to absence of token"
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</otherwise>
+		</choice>
+	</flow>
+</mule>
